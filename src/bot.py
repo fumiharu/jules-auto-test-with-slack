@@ -34,8 +34,7 @@ if os.environ.get("TEST_MODE") == "True":
 
     app = App(
         token="xoxb-dummy",
-        client=MockWebClient(token="xoxb-dummy"),
-        request_verification_enabled=False
+        client=MockWebClient(token="xoxb-dummy")
     )
 else:
     app = App(token=SLACK_BOT_TOKEN)
