@@ -84,7 +84,10 @@ Slackから自然言語でUI自動テストを検索・実行するためのボ�
     SLACK_APP_TOKEN=xapp-xxxxxxxxx
     OPENAI_API_KEY=sk-xxxxxxxxx
     GITHUB_TOKEN=ghp-xxxxxxxxx
-    # ...他項目も同様に設定
+
+    # Google Sheets を使う場合
+    GOOGLE_CREDENTIALS_JSON=credentials.json
+    GOOGLE_SHEET_KEY=your-spreadsheet-id-here
     ```
 
 3.  **実行**:
@@ -116,14 +119,61 @@ Slackから自然言語でUI自動テストを検索・実行するためのボ�
           SLACK_APP_TOKEN: ${{ secrets.SLACK_APP_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Google Sheets (JSON文字列全体をSecretsに登録した場合)
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GOOGLE_SHEET_KEY: ${{ secrets.GOOGLE_SHEET_KEY }}
           # その他の変数は secrets か env で直接指定
           GITHUB_OWNER: fumiharu
           GITHUB_REPO: ui-automation-test-sample
+          # 本番モード設定 (必ずFalseにする)
           TEST_MODE: "False"
+          MOCK_GITHUB_MODE: "False"
+          MOCK_MODE: "False"
         run: |
           pip install -r requirements.txt
           python src/bot.py
     ```
+
+    > **Note:** 連携先の GitHub Actions ワークフロー (`ui-test.yml`) は、`workflow_dispatch` トリガーで `test_target` という入力を受け取るように設定されている必要があります。
+
+### 4. 追加設定 (Google Sheets & OpenAI)
+
+#### A. Google Sheets API の設定
+
+実運用でテストケースをGoogleスプレッドシートで管理する場合の設定です。
+
+1.  **GCPプロジェクトとAPIの有効化**:
+    *   [Google Cloud Console](https://console.cloud.google.com/) にアクセスし、新しいプロジェクトを作成します。
+    *   「APIとサービス」>「ライブラリ」から **Google Sheets API** を検索し、有効にします。
+
+2.  **サービスアカウントの作成**:
+    *   「APIとサービス」>「認証情報」から「認証情報を作成」>「サービスアカウント」を選択します。
+    *   適当な名前（例: `auto-test-reader`）を入力して作成します（ロールは空でOK）。
+    *   作成されたサービスアカウントのメールアドレス（例: `xxx@project.iam.gserviceaccount.com`）をコピーしておきます。
+
+3.  **キーの発行**:
+    *   サービスアカウントの詳細画面で「キー」タブを開き、「鍵を追加」>「新しい鍵を作成」>「JSON」を選択します。
+    *   JSONファイルがダウンロードされます。
+    *   **ローカル実行時**: このファイルを `credentials.json` などの名前でプロジェクトルートに置き、`.env` の `GOOGLE_CREDENTIALS_JSON` にファイル名を指定します。
+    *   **本番(Actions)実行時**: このJSONファイルの**中身すべて**をコピーし、GitHub Secrets (`GOOGLE_CREDENTIALS_JSON`) に貼り付けます。
+
+4.  **スプレッドシートの共有**:
+    *   テストケースを記載したGoogleスプレッドシートを開きます。
+    *   右上の「共有」ボタンを押し、先ほどコピーしたサービスアカウントのメールアドレスを追加します（権限は「閲覧者」でOK）。
+    *   スプレッドシートのURL `https://docs.google.com/spreadsheets/d/XXXXXXXX/edit` の `XXXXXXXX` 部分をコピーし、`.env` の `GOOGLE_SHEET_KEY` に設定します。
+
+#### B. OpenAI API の設定
+
+AIによる検索・推論機能を使用するために必要です。
+
+1.  **APIキーの取得**:
+    *   [OpenAI Platform](https://platform.openai.com/api-keys) にアクセスし、アカウントを作成またはログインします。
+    *   「Create new secret key」をクリックし、キーを発行します (`sk-...`)。
+    *   このキーを `.env` の `OPENAI_API_KEY` に設定します。
+
+2.  **クレジットのチャージ (重要)**:
+    *   OpenAI APIは従量課金制です。無料枠がない場合、[Billing settings](https://platform.openai.com/account/billing/overview) でクレジットカードを登録し、クレジット（残高）を購入する必要があります。
+    *   残高がないと API エラー (`429 You exceeded your current quota`) が発生します。
 
 #### アプリの利用開始
 起動後、Slackチャンネルにアプリを招待 (`/invite @AutoTestBot`) し、「@AutoTestBot ログインのテストして」のように話しかけてください。

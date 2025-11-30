@@ -4,6 +4,8 @@ import pandas as pd
 from typing import List, Optional, Dict
 import openai
 import json
+import gspread
+from google.oauth2.service_account import Credentials
 
 # モックモードの制御 (環境変数で制御可能にする)
 MOCK_MODE = os.getenv("MOCK_MODE", "True").lower() == "true"
@@ -12,10 +14,47 @@ class TestRegistry:
     def __init__(self, csv_path: str, tests_root: str):
         self.csv_path = csv_path
         self.tests_root = tests_root
-        self.df = self._load_csv()
+        self.df = self._load_data()
         self.available_scripts = self._scan_scripts()
 
-    def _load_csv(self) -> pd.DataFrame:
+    def _load_data(self) -> pd.DataFrame:
+        """
+        Loads test cases from Google Sheets if configured, otherwise falls back to CSV.
+        """
+        google_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+        sheet_key = os.environ.get("GOOGLE_SHEET_KEY")
+
+        if google_json and sheet_key:
+            try:
+                print(f"[INFO] Loading test cases from Google Sheet ({sheet_key})...")
+                # サービスアカウント認証
+                # google_jsonがファイルパスか、JSON文字列かを判定するロジック
+                if google_json.strip().startswith("{"):
+                    # JSON文字列として渡された場合 (GitHub Secretsなど)
+                    info = json.loads(google_json)
+                    creds = Credentials.from_service_account_info(
+                        info,
+                        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
+                    )
+                elif os.path.exists(google_json):
+                     # ファイルパスとして渡された場合
+                    creds = Credentials.from_service_account_file(
+                        google_json,
+                        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
+                    )
+                else:
+                    raise ValueError("GOOGLE_CREDENTIALS_JSON must be a valid file path or JSON string.")
+
+                client = gspread.authorize(creds)
+                sheet = client.open_by_key(sheet_key).sheet1
+                data = sheet.get_all_records()
+                return pd.DataFrame(data)
+
+            except Exception as e:
+                print(f"[ERROR] Failed to load Google Sheet: {e}")
+                print("[INFO] Falling back to CSV...")
+
+        # Fallback to CSV
         if not os.path.exists(self.csv_path):
             raise FileNotFoundError(f"CSV file not found: {self.csv_path}")
         return pd.read_csv(self.csv_path)
