@@ -1,1 +1,1 @@
-# Jules_AutoTestWithSlack
+# jules-auto-test-with-slack
