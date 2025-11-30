@@ -1,0 +1,200 @@
+import os
+import glob
+import pandas as pd
+from typing import List, Optional, Dict
+import openai
+import json
+import gspread
+from google.oauth2.service_account import Credentials
+
+# モックモードの制御 (環境変数で制御可能にする)
+MOCK_MODE = os.getenv("MOCK_MODE", "True").lower() == "true"
+
+class TestRegistry:
+    def __init__(self, csv_path: str, tests_root: str):
+        self.csv_path = csv_path
+        self.tests_root = tests_root
+        self.df = self._load_data()
+        self.available_scripts = self._scan_scripts()
+
+    def _load_data(self) -> pd.DataFrame:
+        """
+        Loads test cases from Google Sheets if configured, otherwise falls back to CSV.
+        """
+        google_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+        sheet_key = os.environ.get("GOOGLE_SHEET_KEY")
+
+        if google_json and sheet_key:
+            try:
+                print(f"[INFO] Loading test cases from Google Sheet ({sheet_key})...")
+                # サービスアカウント認証
+                # google_jsonがファイルパスか、JSON文字列かを判定するロジック
+                if google_json.strip().startswith("{"):
+                    # JSON文字列として渡された場合 (GitHub Secretsなど)
+                    info = json.loads(google_json)
+                    creds = Credentials.from_service_account_info(
+                        info,
+                        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
+                    )
+                elif os.path.exists(google_json):
+                     # ファイルパスとして渡された場合
+                    creds = Credentials.from_service_account_file(
+                        google_json,
+                        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
+                    )
+                else:
+                    raise ValueError("GOOGLE_CREDENTIALS_JSON must be a valid file path or JSON string.")
+
+                client = gspread.authorize(creds)
+                sheet = client.open_by_key(sheet_key).sheet1
+                data = sheet.get_all_records()
+                return pd.DataFrame(data)
+
+            except Exception as e:
+                print(f"[ERROR] Failed to load Google Sheet: {e}")
+                print("[INFO] Falling back to CSV...")
+
+        # Fallback to CSV
+        if not os.path.exists(self.csv_path):
+            raise FileNotFoundError(f"CSV file not found: {self.csv_path}")
+        return pd.read_csv(self.csv_path)
+
+    def _scan_scripts(self) -> Dict[str, str]:
+        """
+        Scans the tests directory and returns a mapping of {filepath: content_summary}.
+        content_summary includes filename and docstrings.
+        """
+        scripts = {}
+        search_pattern = os.path.join(self.tests_root, "**/*.py")
+        for filepath in glob.glob(search_pattern, recursive=True):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    # 簡易的なDocstring抽出 (本来はastモジュールなどを使うとより正確)
+                    scripts[filepath] = content
+            except Exception as e:
+                print(f"Error reading {filepath}: {e}")
+        return scripts
+
+    def search_test_case(self, query: str) -> Optional[Dict]:
+        """
+        Searches for the most relevant test case in the CSV based on the user query.
+        Returns a dictionary representing the row, or None if not found.
+        """
+        # 1. 簡易的なキーワード検索 (モック/フォールバック用)
+        # 本来はここでOpenAIを使ってクエリの意味解析を行い、CSV内の description とマッチングする
+
+        if MOCK_MODE:
+            print(f"[DEBUG] Searching for query: {query}")
+            # デモ用に単純なキーワードマッチ
+            # 除外ワードリスト
+            ignore_words = ["make", "me", "a"]
+            query_words = [w for w in query.lower().split() if w not in ignore_words]
+
+            if not query_words:
+                return None
+
+            for _, row in self.df.iterrows():
+                text = f"{row['title']} {row['description']}".lower()
+                # 少なくとも1つの意味のある単語がヒットすること
+                if any(word in text for word in query_words):
+                    return row.to_dict()
+            return None
+
+        # 2. OpenAIを使用した検索 (TODO: 実装)
+        # Prompt: "User query: {query}. Which of these test cases is most relevant? {json_of_csv}"
+        return self._ai_search_csv(query)
+
+    def resolve_script_path(self, test_case: Dict) -> str:
+        """
+        Determines the script path for a given test case.
+        If 'script_path' is empty in CSV, uses AI to find the best matching script.
+        """
+        if pd.notna(test_case.get("script_path")) and test_case["script_path"]:
+            return test_case["script_path"]
+
+        print(f"[INFO] Script path missing for '{test_case['title']}'. Searching in codebase...")
+
+        if MOCK_MODE:
+            # モックロジック: ファイル名に特定のキーワードが含まれていればヒットとする
+            # 実際にはここでAIにファイルの中身を見せて選ばせる
+            keywords = test_case['title'].lower().split()
+            for filepath in self.available_scripts.keys():
+                filename = os.path.basename(filepath).lower()
+                if any(k in filename for k in keywords if len(k) > 3): # 3文字以上のキーワードでマッチ
+                    return filepath
+            return "No matching script found (Mock)"
+
+        return self._ai_find_script(test_case)
+
+    def _ai_search_csv(self, query: str) -> Optional[Dict]:
+        try:
+            # Prepare context (be mindful of token limits for large CSVs)
+            context = self.df[['id', 'title', 'description']].to_string(index=False)
+
+            client = openai.OpenAI()
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are a QA assistant. Map the user query to the most relevant Test ID from the list. Return ONLY the Test ID (e.g., TC-001). If no match, return 'None'."},
+                    {"role": "user", "content": f"Test Cases:\n{context}\n\nQuery: {query}"}
+                ],
+                temperature=0.0
+            )
+
+            result_id = response.choices[0].message.content.strip()
+
+            # Match back to DataFrame
+            match = self.df[self.df['id'] == result_id]
+            if not match.empty:
+                return match.iloc[0].to_dict()
+            return None
+
+        except Exception as e:
+            print(f"OpenAI API Error (Search CSV): {e}")
+            return None
+
+    def _ai_find_script(self, test_case: Dict) -> str:
+        try:
+            scripts_info = "\n".join([f"Path: {p}\nContent: {c[:200]}..." for p, c in self.available_scripts.items()])
+
+            client = openai.OpenAI()
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are a QA assistant. Find the most relevant python test script path for the given test case description. Return ONLY the file path. If no match, return 'None'."},
+                    {"role": "user", "content": f"Test Case: {test_case['title']} - {test_case['description']}\n\nAvailable Scripts:\n{scripts_info}"}
+                ],
+                temperature=0.0
+            )
+
+            result_path = response.choices[0].message.content.strip()
+
+            if result_path and result_path != 'None' and result_path in self.available_scripts:
+                return result_path
+
+            return "No matching script found (AI)"
+
+        except Exception as e:
+            print(f"OpenAI API Error (Find Script): {e}")
+            return "Error during AI script resolution"
+
+# 使用例 (デバッグ用)
+if __name__ == "__main__":
+    registry = TestRegistry("mock_data/test_cases.csv", "tests/ui")
+
+    # Case 1: CSVにパスがある場合
+    print("--- Case 1: Login ---")
+    case1 = registry.search_test_case("login")
+    if case1:
+        print(f"Found Case: {case1['title']}")
+        path = registry.resolve_script_path(case1)
+        print(f"Script Path: {path}")
+
+    # Case 2: CSVにパスがなく、推論が必要な場合 (例: Checkout)
+    print("\n--- Case 2: Checkout ---")
+    case2 = registry.search_test_case("checkout")
+    if case2:
+        print(f"Found Case: {case2['title']}")
+        path = registry.resolve_script_path(case2)
+        print(f"Script Path: {path}")

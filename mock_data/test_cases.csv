@@ -1,0 +1,6 @@
+id,category,title,description,script_path
+TC-001,User Management,Login Success,ユーザーが正しいメールアドレスとパスワードでログインできることを確認する。,tests/ui/auth/test_login.py
+TC-002,User Management,Login Failure,誤ったパスワードを入力した際にエラーメッセージが表示されることを確認する。,
+TC-003,Shopping,Add to Cart,商品詳細ページから商品をカートに追加し、カート内商品のカウントが増えることを確認する。,tests/ui/cart/test_add_to_cart.py
+TC-004,Shopping,Checkout Process,カートに商品が入った状態で決済フローを完了できることを確認する。,
+TC-005,Search,Keyword Search,検索バーにキーワードを入力して検索し、関連する商品のみが表示されることを確認する。,
