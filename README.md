@@ -58,38 +58,72 @@ Slackから自然言語でUI自動テストを検索・実行するためのボ�
     *   許可画面で「Allow」をクリックします。
     *   表示された `xoxb-...` から始まる「Bot User OAuth Token」をコピーし、`.env` ファイルの `SLACK_BOT_TOKEN` に設定します。
 
-### 3. インストールと実行
+### 3. 環境設定と実行
 
-**ライブラリのインストール:**
-```bash
-pip install -r requirements.txt
-```
+運用環境（ローカルPC または サーバー/クラウド）に合わせて設定を行ってください。
 
-**環境変数の設定:**
-`.env` ファイルを作成し、取得したトークンを設定してください。
+#### A. ローカル開発環境で動かす場合
 
-```ini
-# Slack
-SLACK_BOT_TOKEN=xoxb-your-bot-token
-SLACK_APP_TOKEN=xapp-your-app-token
+手元のPCで動かす場合は、`.env` ファイルを使用します。
 
-# OpenAI (AI検索・推論用)
-OPENAI_API_KEY=sk-your-openai-key
+1.  **ライブラリのインストール**:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-# GitHub (Actions連携用)
-GITHUB_TOKEN=ghp-your-github-token
-GITHUB_OWNER=fumiharu
-GITHUB_REPO=ui-automation-test-sample
-GITHUB_WORKFLOW_ID=ui-test.yml
+2.  **設定ファイルの作成**:
+    リポジトリ直下の `.env.example` をコピーして `.env` を作成し、中身を編集してください。
 
-# 動作モード設定 (開発時はTrue推奨)
-TEST_MODE=False
-MOCK_GITHUB_MODE=False
-MOCK_MODE=False
-```
+    ```bash
+    cp .env.example .env
+    ```
 
-**ボットの起動:**
-```bash
-python src/bot.py
-```
+    ```ini
+    # .env ファイルの例
+    SLACK_BOT_TOKEN=xoxb-xxxxxxxxx
+    SLACK_APP_TOKEN=xapp-xxxxxxxxx
+    OPENAI_API_KEY=sk-xxxxxxxxx
+    GITHUB_TOKEN=ghp-xxxxxxxxx
+    # ...他項目も同様に設定
+    ```
+
+3.  **実行**:
+    ```bash
+    python src/bot.py
+    ```
+
+#### B. 本番環境 (GitHub Actions / クラウド) で動かす場合
+
+サーバーやGitHub Actions上で動かす場合は、ファイルではなく**環境変数 (Secrets)** を使用します。セキュリティのため、`.env` ファイルはリポジトリに含めないでください。
+
+1.  **環境変数の設定**:
+    実行環境の環境変数設定画面（GitHub Actionsの場合は `Settings > Secrets and variables > Actions`）で、以下のキーと値を登録します。
+
+    *   `SLACK_BOT_TOKEN`
+    *   `SLACK_APP_TOKEN`
+    *   `OPENAI_API_KEY`
+    *   `GITHUB_TOKEN`
+    *   その他 `.env.example` に記載されている変数
+
+2.  **GitHub Actions Workflow の例**:
+    `.github/workflows/run-bot.yml` のような定義ファイルから起動する場合の記述例です。
+
+    ```yaml
+    steps:
+      - name: Run Slack Bot
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_APP_TOKEN: ${{ secrets.SLACK_APP_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # その他の変数は secrets か env で直接指定
+          GITHUB_OWNER: fumiharu
+          GITHUB_REPO: ui-automation-test-sample
+          TEST_MODE: "False"
+        run: |
+          pip install -r requirements.txt
+          python src/bot.py
+    ```
+
+#### アプリの利用開始
 起動後、Slackチャンネルにアプリを招待 (`/invite @AutoTestBot`) し、「@AutoTestBot ログインのテストして」のように話しかけてください。
