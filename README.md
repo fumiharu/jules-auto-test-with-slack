@@ -25,15 +25,48 @@ Slackから自然言語でUI自動テストを検索・実行するためのボ�
 *   Slack App (Bot Token & App Token)
 *   OpenAI API Key (AI検索機能を使用する場合)
 
-### 2. インストール
+### 2. Slackアプリの作成と設定（詳細）
 
+このボットを動かすには、Slack APIでアプリを作成し、Socket Modeを有効にする必要があります。
+
+1.  **アプリの作成**:
+    *   [Slack API: Your Apps](https://api.slack.com/apps) にアクセスし、「Create New App」をクリックします。
+    *   「From scratch」を選択し、アプリ名（例: `AutoTestBot`）とインストール先のワークスペースを指定して「Create App」をクリックします。
+
+2.  **Socket Mode の有効化 (App Tokenの取得)**:
+    *   左側メニューの **Socket Mode** をクリックします。
+    *   「Enable Socket Mode」をオンにします。
+    *   Token Name（例: `socket-token`）を入力し、「Generate」をクリックします。
+    *   表示された `xapp-...` から始まるトークンをコピーし、`.env` ファイルの `SLACK_APP_TOKEN` に設定します。
+
+3.  **Event Subscriptions の設定**:
+    *   左側メニューの **Event Subscriptions** をクリックします。
+    *   「Enable Events」をオンにします。
+    *   「Subscribe to bot events」セクションを展開し、「Add Bot User Event」をクリックします。
+    *   `app_mention` を検索して追加します。（これでメンションに反応できるようになります）
+    *   画面下部の「Save Changes」をクリックします。
+
+4.  **OAuth & Permissions (権限) の設定**:
+    *   左側メニューの **OAuth & Permissions** をクリックします。
+    *   「Scopes」セクションの「Bot Token Scopes」を確認します。
+    *   以下の権限が含まれていることを確認してください（足りなければ追加します）。
+        *   `app_mention:read` (Event設定時に自動で追加されているはずです)
+        *   `chat:write` (メッセージを送信するために必要です)
+
+5.  **アプリのインストール (Bot Tokenの取得)**:
+    *   同じ **OAuth & Permissions** ページの上部にある「Install to Workspace」をクリックします。
+    *   許可画面で「Allow」をクリックします。
+    *   表示された `xoxb-...` から始まる「Bot User OAuth Token」をコピーし、`.env` ファイルの `SLACK_BOT_TOKEN` に設定します。
+
+### 3. インストールと実行
+
+**ライブラリのインストール:**
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. 環境変数の設定
-
-`.env` ファイルを作成し、以下の値を設定してください。
+**環境変数の設定:**
+`.env` ファイルを作成し、取得したトークンを設定してください。
 
 ```ini
 # Slack
@@ -45,25 +78,18 @@ OPENAI_API_KEY=sk-your-openai-key
 
 # GitHub (Actions連携用)
 GITHUB_TOKEN=ghp-your-github-token
-GITHUB_OWNER=your-org
-GITHUB_REPO=your-repo
+GITHUB_OWNER=fumiharu
+GITHUB_REPO=ui-automation-test-sample
 GITHUB_WORKFLOW_ID=ui-test.yml
+
+# 動作モード設定 (開発時はTrue推奨)
+TEST_MODE=False
+MOCK_GITHUB_MODE=False
+MOCK_MODE=False
 ```
 
-### 4. 実行方法
-
-**本番モード（Slackに接続）:**
+**ボットの起動:**
 ```bash
 python src/bot.py
 ```
-
-**シミュレーションモード（CLIで動作確認）:**
-Slackに接続せず、ターミナル上で対話をテストできます。
-```bash
-python simulate_bot.py
-```
-
-## カスタマイズ
-
-*   **テストケース**: `mock_data/test_cases.csv` を編集するか、`src/core.py` を修正してGoogleスプレッドシートから読み込むように変更してください。
-*   **ロジック**: `src/core.py` 内の `MOCK_MODE` フラグを `False` にすると、実際にOpenAI APIを使用した検索が有効になります。
+起動後、Slackチャンネルにアプリを招待 (`/invite @AutoTestBot`) し、「@AutoTestBot ログインのテストして」のように話しかけてください。

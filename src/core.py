@@ -89,13 +89,56 @@ class TestRegistry:
         return self._ai_find_script(test_case)
 
     def _ai_search_csv(self, query: str) -> Optional[Dict]:
-        # OpenAI API implementation placeholder
-        pass
+        try:
+            # Prepare context (be mindful of token limits for large CSVs)
+            context = self.df[['id', 'title', 'description']].to_string(index=False)
+
+            client = openai.OpenAI()
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are a QA assistant. Map the user query to the most relevant Test ID from the list. Return ONLY the Test ID (e.g., TC-001). If no match, return 'None'."},
+                    {"role": "user", "content": f"Test Cases:\n{context}\n\nQuery: {query}"}
+                ],
+                temperature=0.0
+            )
+
+            result_id = response.choices[0].message.content.strip()
+
+            # Match back to DataFrame
+            match = self.df[self.df['id'] == result_id]
+            if not match.empty:
+                return match.iloc[0].to_dict()
+            return None
+
+        except Exception as e:
+            print(f"OpenAI API Error (Search CSV): {e}")
+            return None
 
     def _ai_find_script(self, test_case: Dict) -> str:
-        # OpenAI API implementation placeholder
-        # Prompt: "Here is a test case description: {desc}. Here are available scripts: {list}. Which one matches?"
-        pass
+        try:
+            scripts_info = "\n".join([f"Path: {p}\nContent: {c[:200]}..." for p, c in self.available_scripts.items()])
+
+            client = openai.OpenAI()
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are a QA assistant. Find the most relevant python test script path for the given test case description. Return ONLY the file path. If no match, return 'None'."},
+                    {"role": "user", "content": f"Test Case: {test_case['title']} - {test_case['description']}\n\nAvailable Scripts:\n{scripts_info}"}
+                ],
+                temperature=0.0
+            )
+
+            result_path = response.choices[0].message.content.strip()
+
+            if result_path and result_path != 'None' and result_path in self.available_scripts:
+                return result_path
+
+            return "No matching script found (AI)"
+
+        except Exception as e:
+            print(f"OpenAI API Error (Find Script): {e}")
+            return "Error during AI script resolution"
 
 # 使用例 (デバッグ用)
 if __name__ == "__main__":
